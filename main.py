@@ -8,10 +8,9 @@ import os
 import PIL
 from tensorflow.keras import layers
 import time
+from tqdm import tqdm
 
 from IPython import display
-
-print(tf.__version__)
 
 BUFFER_SIZE = 60000
 BATCH_SIZE = 256
@@ -78,14 +77,7 @@ def generator_loss(fake_output):
 
 generator = make_generator_model()
 
-noise = tf.random.normal([1, 100])
-generated_image = generator(noise, training=False)
-
-plt.imshow(generated_image[0, :, :, 0], cmap='gray')
-
 discriminator = make_discriminator_model()
-decision = discriminator(generated_image)
-print(decision)
 
 # This method returns a helper function to compute cross entropy loss
 cross_entropy = tf.keras.losses.BinaryCrossentropy(from_logits=True)
@@ -101,6 +93,9 @@ checkpoint = tf.train.Checkpoint(generator_optimizer=generator_optimizer,
                                  discriminator=discriminator)
 
 EPOCHS = 50
+SAVE_MODEL_EVERY = 15
+SAVE_IMAGE_EVERY = 5
+SHOW_EVERY = 10
 noise_dim = 100
 num_examples_to_generate = 16
 
@@ -133,9 +128,10 @@ def train_step(images):
 
 def train(dataset, epochs):
     for epoch in range(epochs):
-        start = time.time()
-
-        for image_batch in dataset:
+        print(generator_optimizer)
+        dataset_enumerator = tqdm(dataset)
+        for image_batch in dataset_enumerator:
+            dataset_enumerator.set_description(f'Training Epoch ({epoch + 1}/{epochs})')
             train_step(image_batch)
 
         # Produce images for the GIF as you go
@@ -145,10 +141,8 @@ def train(dataset, epochs):
                                  seed)
 
         # Save the model every 15 epochs
-        if (epoch + 1) % 15 == 0:
+        if (epoch + 1) % SAVE_MODEL_EVERY == 0:
             checkpoint.save(file_prefix=checkpoint_prefix)
-
-        print('Time for epoch {} is {} sec'.format(epoch + 1, time.time() - start))
 
     # Generate after the final epoch
     display.clear_output(wait=True)
@@ -169,8 +163,10 @@ def generate_and_save_images(model, epoch, test_input):
         plt.imshow(predictions[i, :, :, 0] * 127.5 + 127.5, cmap='gray')
         plt.axis('off')
 
-    plt.savefig('image_at_epoch_{:04d}.png'.format(epoch))
-    plt.show()
+    if (epoch + 1) % SAVE_IMAGE_EVERY == 0:
+        plt.savefig('image_at_epoch_{:04d}.png'.format(epoch))
+    if (epoch + 1) % SHOW_EVERY == 0:
+        plt.show()
 
 
 train(train_dataset, EPOCHS)
