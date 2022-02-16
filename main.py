@@ -189,7 +189,9 @@ def generate_and_save_images(model, epoch, test_input):
             plt.subplot(4, 4, i + 1)
             plt.imshow(predictions[i, :, :, 0] * 127.5 + 127.5, cmap='gray')
             plt.axis('off')
-        plt.savefig('images/image_at_epoch_{:04d}.png'.format(epoch))
+        if not os.path.isdir('./images'):
+            os.mkdir('./images')
+        plt.savefig('./images/image_at_epoch_{:04d}.png'.format(epoch))
         if epoch % SHOW_EVERY == 0:
             plt.show()
         else:
