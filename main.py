@@ -1,48 +1,69 @@
-import tensorflow as tf
-
 import glob
-import imageio
-import matplotlib.pyplot as plt
-import numpy as np
 import os
-import PIL
+
+import tensorflow as tf
+import matplotlib.pyplot as plt
+from PIL import Image
 from tensorflow.keras import layers
-import time
 from tqdm import tqdm
 
 from IPython import display
 
-BUFFER_SIZE = 60000
-BATCH_SIZE = 256
+BUFFER_SIZE = 6000
+BATCH_SIZE = 128
+IMG_HEIGHT = 100
+IMG_WIDTH = 100
 
-(train_images, train_labels), (_, _) = tf.keras.datasets.mnist.load_data()
-train_images = train_images.reshape(train_images.shape[0], 28, 28, 1).astype('float32')
-train_images = (train_images - 127.5) / 127.5  # Normalize the images to [-1, 1]
+DATA_DIR = "/Users/schiba/Datasets/Fun/wikiart"
 
-train_dataset = tf.data.Dataset.from_tensor_slices(train_images).shuffle(BUFFER_SIZE).batch(BATCH_SIZE)
+files_enumerator = tqdm(glob.glob(os.path.join(DATA_DIR, "*/*")))
+wrong_files = 0
+
+for file in files_enumerator:
+    files_enumerator.set_description("Scanning files")
+    files_enumerator.set_postfix({"wrong": wrong_files})
+    if file.endswith('.jpg'):
+        with open(file, 'rb') as f:
+            check_chars = f.read()[-2:]
+        if check_chars != b'\xff\xd9':
+            wrong_files += 1
+            os.remove(file)
+    else:
+        print(file)
+        os.remove(file)
+
+train_ds = tf.keras.utils.image_dataset_from_directory(
+  DATA_DIR,
+  validation_split=0.2,
+  subset="training",
+  seed=123,
+  image_size=(IMG_HEIGHT, IMG_WIDTH),
+  batch_size=BATCH_SIZE,
+  label_mode=None,
+  shuffle=True)
 
 
 def make_generator_model():
     model = tf.keras.Sequential()
-    model.add(layers.Dense(7 * 7 * 256, use_bias=False, input_shape=(100,)))
+    model.add(layers.Dense(int(IMG_HEIGHT / 4) * int(IMG_WIDTH / 4) * 256, use_bias=False, input_shape=(100,)))
     model.add(layers.BatchNormalization())
     model.add(layers.LeakyReLU())
 
-    model.add(layers.Reshape((7, 7, 256)))
-    assert model.output_shape == (None, 7, 7, 256)  # Note: None is the batch size
+    model.add(layers.Reshape((int(IMG_HEIGHT / 4), int(IMG_WIDTH / 4), 256)))
+    assert model.output_shape == (None, int(IMG_HEIGHT / 4), int(IMG_WIDTH / 4), 256)  # Note: None is the batch size
 
     model.add(layers.Conv2DTranspose(128, (5, 5), strides=(1, 1), padding='same', use_bias=False))
-    assert model.output_shape == (None, 7, 7, 128)
+    assert model.output_shape == (None, int(IMG_HEIGHT / 4), int(IMG_WIDTH / 4), 128)
     model.add(layers.BatchNormalization())
     model.add(layers.LeakyReLU())
 
     model.add(layers.Conv2DTranspose(64, (5, 5), strides=(2, 2), padding='same', use_bias=False))
-    assert model.output_shape == (None, 14, 14, 64)
+    assert model.output_shape == (None, int(IMG_HEIGHT / 2), int(IMG_WIDTH / 2), 64)
     model.add(layers.BatchNormalization())
     model.add(layers.LeakyReLU())
 
-    model.add(layers.Conv2DTranspose(1, (5, 5), strides=(2, 2), padding='same', use_bias=False, activation='tanh'))
-    assert model.output_shape == (None, 28, 28, 1)
+    model.add(layers.Conv2DTranspose(3, (5, 5), strides=(2, 2), padding='same', use_bias=False, activation='tanh'))
+    assert model.output_shape == (None, IMG_HEIGHT, IMG_WIDTH, 3)
 
     return model
 
@@ -50,7 +71,7 @@ def make_generator_model():
 def make_discriminator_model():
     model = tf.keras.Sequential()
     model.add(layers.Conv2D(64, (5, 5), strides=(2, 2), padding='same',
-                            input_shape=[28, 28, 1]))
+                            input_shape=[IMG_HEIGHT, IMG_WIDTH, 3]))
     model.add(layers.LeakyReLU())
     model.add(layers.Dropout(0.3))
 
@@ -124,15 +145,21 @@ def train_step(images):
 
     generator_optimizer.apply_gradients(zip(gradients_of_generator, generator.trainable_variables))
     discriminator_optimizer.apply_gradients(zip(gradients_of_discriminator, discriminator.trainable_variables))
+    return gen_loss, disc_loss
 
 
 def train(dataset, epochs):
+    gen_loss = 0
+    disc_loss = 0
     for epoch in range(epochs):
-        print(generator_optimizer)
         dataset_enumerator = tqdm(dataset)
         for image_batch in dataset_enumerator:
-            dataset_enumerator.set_description(f'Training Epoch ({epoch + 1}/{epochs})')
-            train_step(image_batch)
+            dataset_enumerator.set_description(f'Training Epoch ({epoch + 1:03d}/{epochs:03d})')
+            dataset_enumerator.set_postfix({
+                "gen-loss": f'{gen_loss:.6f}',
+                "disc-loss": f'{disc_loss:.6f}'
+            })
+            gen_loss, disc_loss = train_step(image_batch)
 
         # Produce images for the GIF as you go
         display.clear_output(wait=True)
@@ -156,17 +183,17 @@ def generate_and_save_images(model, epoch, test_input):
     # This is so all layers run in inference mode (batchnorm).
     predictions = model(test_input, training=False)
 
-    fig = plt.figure(figsize=(4, 4))
+    if epoch % SAVE_IMAGE_EVERY == 0:
+        fig = plt.figure(figsize=(4, 4))
+        for i in range(predictions.shape[0]):
+            plt.subplot(4, 4, i + 1)
+            plt.imshow(predictions[i, :, :, 0] * 127.5 + 127.5, cmap='gray')
+            plt.axis('off')
+        plt.savefig('images/image_at_epoch_{:04d}.png'.format(epoch))
+        if epoch % SHOW_EVERY == 0:
+            plt.show()
+        else:
+            plt.close(fig)
 
-    for i in range(predictions.shape[0]):
-        plt.subplot(4, 4, i + 1)
-        plt.imshow(predictions[i, :, :, 0] * 127.5 + 127.5, cmap='gray')
-        plt.axis('off')
 
-    if (epoch + 1) % SAVE_IMAGE_EVERY == 0:
-        plt.savefig('image_at_epoch_{:04d}.png'.format(epoch))
-    if (epoch + 1) % SHOW_EVERY == 0:
-        plt.show()
-
-
-train(train_dataset, EPOCHS)
+train(train_ds, EPOCHS)
