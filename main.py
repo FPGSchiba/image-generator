@@ -3,18 +3,16 @@ import os
 
 import tensorflow as tf
 import matplotlib.pyplot as plt
-from PIL import Image
 from tensorflow.keras import layers
 from tqdm import tqdm
 
 from IPython import display
 
-BUFFER_SIZE = 6000
-BATCH_SIZE = 128
-IMG_HEIGHT = 100
-IMG_WIDTH = 100
+BATCH_SIZE = 64
+IMG_HEIGHT = 200
+IMG_WIDTH = 200
 
-DATA_DIR = "/Users/schiba/Datasets/Fun/wikiart"
+DATA_DIR = "D:/Datasets/wikiart/"
 
 files_enumerator = tqdm(glob.glob(os.path.join(DATA_DIR, "*/*")))
 wrong_files = 0
@@ -34,9 +32,7 @@ for file in files_enumerator:
 
 train_ds = tf.keras.utils.image_dataset_from_directory(
   DATA_DIR,
-  validation_split=0.2,
-  subset="training",
-  seed=123,
+  seed=674518236,
   image_size=(IMG_HEIGHT, IMG_WIDTH),
   batch_size=BATCH_SIZE,
   label_mode=None,
@@ -115,10 +111,8 @@ checkpoint = tf.train.Checkpoint(generator_optimizer=generator_optimizer,
 
 EPOCHS = 50
 SAVE_MODEL_EVERY = 15
-SAVE_IMAGE_EVERY = 5
-SHOW_EVERY = 10
 noise_dim = 100
-num_examples_to_generate = 16
+num_examples_to_generate = 1
 
 # You will reuse this seed overtime (so it's easier)
 # to visualize progress in the animated GIF)
@@ -182,20 +176,12 @@ def generate_and_save_images(model, epoch, test_input):
     # Notice `training` is set to False.
     # This is so all layers run in inference mode (batchnorm).
     predictions = model(test_input, training=False)
-
-    if epoch % SAVE_IMAGE_EVERY == 0:
-        fig = plt.figure(figsize=(4, 4))
-        for i in range(predictions.shape[0]):
-            plt.subplot(4, 4, i + 1)
-            plt.imshow(predictions[i, :, :, 0] * 127.5 + 127.5, cmap='gray')
-            plt.axis('off')
-        if not os.path.isdir('./images'):
-            os.mkdir('./images')
-        plt.savefig('./images/image_at_epoch_{:04d}.png'.format(epoch))
-        if epoch % SHOW_EVERY == 0:
-            plt.show()
-        else:
-            plt.close(fig)
+    fig = plt.figure(figsize=(1, 1))
+    plt.imshow(predictions[0])
+    plt.axis('off')
+    if not os.path.isdir('./images'):
+        os.mkdir('./images')
+    plt.savefig('./images/image_at_epoch_{:04d}.png'.format(epoch))
 
 
 train(train_ds, EPOCHS)
